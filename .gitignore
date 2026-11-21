@@ -1,0 +1,8 @@
+.env
+venv/
+__pycache__/
+*.pyc
+civiclens.db
+uploads/*
+!uploads/.gitkeep
+.vscode/
