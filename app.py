@@ -23,6 +23,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Initialize authentication session state
+if "officer_authenticated" not in st.session_state:
+    st.session_state["officer_authenticated"] = False
+
 # Custom Civic Government UI Styling
 CUSTOM_CSS = """
 <style>
@@ -134,6 +138,41 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+def render_officer_login():
+    """Render the official municipal officer authentication screen."""
+    st.subheader("🔐 Municipal Officer Portal Login")
+    st.caption("Restricted access for authorized city engineers, ward officers, and municipal dispatchers.")
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("officer_login_form"):
+            st.markdown(
+                """
+                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 18px; border-radius: 8px; margin-bottom: 16px;">
+                    <strong style="color: #0B2545;">🏛️ Municipal Corporation Operations Gateway</strong><br>
+                    <span style="font-size: 13px; color: #64748B;">Please enter your official municipal credentials to access the command center.</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            username = st.text_input("Officer Username / Badge ID", placeholder="e.g. officer")
+            password = st.text_input("Security Password", type="password", placeholder="Enter password")
+            submitted = st.form_submit_button("🔐 Sign In to Command Center", use_container_width=True)
+
+            if submitted:
+                # Standard demo credentials for hackathon evaluation
+                if username.strip().lower() == "officer" and password == "civiclens123":
+                    st.session_state["officer_authenticated"] = True
+                    st.session_state["officer_name"] = "Ward Officer (BBMP West)"
+                    st.success("Authentication successful! Loading Operations Dashboard...")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Invalid credentials. Demo login: Username: officer | Password: civiclens123")
+
+        st.info("💡 **Demo Credentials:** Username: `officer` | Password: `civiclens123`")
+
+
 # Sidebar Navigation
 with st.sidebar:
     st.markdown("### 🏛️ Navigation")
@@ -144,6 +183,15 @@ with st.sidebar:
     )
     st.divider()
 
+    # Officer session indicator in sidebar
+    if st.session_state.get("officer_authenticated", False):
+        st.markdown("##### 👤 Active Session")
+        st.caption(f"Logged in: **{st.session_state.get('officer_name', 'Officer')}**")
+        if st.button("🚪 Sign Out", use_container_width=True):
+            st.session_state["officer_authenticated"] = False
+            st.rerun()
+        st.divider()
+
     # Demo data seeder shortcut in sidebar
     st.markdown("##### ⚡ Demo Control")
     if st.button("🌱 Load Demo Data (12 tickets)", use_container_width=True):
@@ -153,8 +201,11 @@ with st.sidebar:
 
     st.caption("CivicLens Smart City Hub v1.0")
 
-# Render View
+# Render View: Citizen Portal is public; Officer Dashboard is protected
 if view_mode == "📢 Citizen Portal":
     complaint.render_complaint_form()
 else:
-    dashboard.render_dashboard()
+    if st.session_state.get("officer_authenticated", False):
+        dashboard.render_dashboard()
+    else:
+        render_officer_login()
