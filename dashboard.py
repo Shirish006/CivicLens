@@ -1,7 +1,7 @@
 """dashboard.py - Municipal Officer Dashboard for CivicLens.
 Provides executive metrics, Plotly visualizations, custom priority sorting
 (Critical -> High -> Medium -> Low), multi-facet filtering, status updates,
-and detailed ticket inspection with officer verification.
+geospatial incident map, and detailed ticket inspection with officer verification.
 """
 import json
 import pandas as pd
@@ -160,6 +160,13 @@ def render_dashboard():
         fig_dept.update_layout(margin=dict(l=10, r=10, t=40, b=10), height=260)
         st.plotly_chart(fig_dept, use_container_width=True)
 
+    # Geospatial City Overview
+    if "latitude" in df.columns and "longitude" in df.columns:
+        with st.expander("🗺️ View City-Wide Geospatial Incident Map", expanded=False):
+            valid_coords = df[["latitude", "longitude"]].dropna()
+            st.map(valid_coords, zoom=11, use_container_width=True)
+            st.caption(f"Plotting {len(valid_coords)} geo-tagged municipal grievances across the metropolitan wards.")
+
     st.divider()
 
     # 3. Filters
@@ -281,6 +288,12 @@ def render_dashboard():
                     st.markdown(f"- **+{b['points']} pts** | **{b['factor']}**: {b['detail']} `[{b['status']}]`")
             else:
                 st.caption("Baseline severity score applied.")
+
+            # Incident map location
+            if ticket.get("latitude") and ticket.get("longitude"):
+                st.markdown("##### 🗺️ Geographic Location")
+                t_map = pd.DataFrame({"latitude": [ticket["latitude"]], "longitude": [ticket["longitude"]]})
+                st.map(t_map, zoom=14, use_container_width=True)
 
         with det_col2:
             st.markdown("#### Status & Officer Verification")

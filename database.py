@@ -1,6 +1,7 @@
 """database.py - SQLite storage engine for CivicLens.
 Manages schema initialization, sequential ID generation (CL-YYYYMMDD-XXXX),
 CRUD operations, Pandas DataFrame exports, and demo data seeding.
+Includes geospatial coordinates (latitude, longitude) for map visualization.
 """
 from datetime import datetime
 import json
@@ -38,6 +39,8 @@ def init_db(db_path: str = DB_FILE) -> None:
             department TEXT,
             suggested_action TEXT,
             location TEXT,
+            latitude REAL DEFAULT 12.9716,
+            longitude REAL DEFAULT 77.5946,
             image_path TEXT,
             people_affected INTEGER DEFAULT 0,
             near_school INTEGER DEFAULT 0,
@@ -52,6 +55,17 @@ def init_db(db_path: str = DB_FILE) -> None:
         );
         """
     )
+
+    # Ensure latitude and longitude columns exist in existing tables
+    try:
+        cursor.execute("ALTER TABLE complaints ADD COLUMN latitude REAL DEFAULT 12.9716;")
+    except Exception:
+        pass
+    try:
+        cursor.execute("ALTER TABLE complaints ADD COLUMN longitude REAL DEFAULT 77.5946;")
+    except Exception:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -96,15 +110,15 @@ def insert_complaint(data: Dict[str, Any], db_path: str = DB_FILE) -> str:
         INSERT INTO complaints (
             id, description, english_translation, language, category,
             severity, severity_reason, summary, department, suggested_action,
-            location, image_path, people_affected, near_school, near_hospital,
-            inputs_verified, impact_score, impact_breakdown, duplicate_of,
-            analysis_source, created_at, status
+            location, latitude, longitude, image_path, people_affected,
+            near_school, near_hospital, inputs_verified, impact_score,
+            impact_breakdown, duplicate_of, analysis_source, created_at, status
         ) VALUES (
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?
+            ?, ?, ?, ?,
+            ?, ?, ?, ?, ?
         );
         """,
         (
@@ -119,6 +133,8 @@ def insert_complaint(data: Dict[str, Any], db_path: str = DB_FILE) -> str:
             data.get("department", "General Municipal Administration"),
             data.get("suggested_action", ""),
             data.get("location", ""),
+            float(data.get("latitude", 12.9716) or 12.9716),
+            float(data.get("longitude", 77.5946) or 77.5946),
             data.get("image_path", None),
             int(data.get("people_affected", 0) or 0),
             1 if data.get("near_school") else 0,
@@ -202,12 +218,8 @@ def update_verification(
 
 
 def seed_sample_complaints(db_path: str = DB_FILE) -> int:
-    """Seed 14 realistic sample complaints across all 6 categories, 4 severities,
-    mixed statuses, multilingual entries, and intentional near-duplicates.
-    All rows are clearly marked with analysis_source='sample'.
-    """
+    """Seed realistic sample complaints across all categories with coordinates."""
     raw_samples = [
-        # 1. Electricity - Critical (Sparking Wire)
         {
             "description": "Exposed high-voltage transformer cable sparking onto wet footpath outside primary school. Immediate electrocution risk!",
             "english_translation": "Exposed high-voltage transformer cable sparking onto wet footpath outside primary school. Immediate electrocution risk!",
@@ -219,13 +231,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Electrical Department",
             "suggested_action": "Emergency power isolation and dispatch linemen crew immediately.",
             "location": "80 Feet Road, Near St. Mary's School, Koramangala",
+            "latitude": 12.9352,
+            "longitude": 77.6245,
             "people_affected": 250,
             "near_school": 1,
             "near_hospital": 0,
             "status": "In Progress",
             "duplicate_of": "",
         },
-        # 2. Roads - Critical (Kannada Pothole Accident)
         {
             "description": "ರಸ್ತೆಯಲ್ಲಿ ಭಾರಿ ಗಾತ್ರದ ಗುಂಡಿ ಬಿದ್ದಿದ್ದು ದ್ವಿಚಕ್ರ ವಾಹನ ಸವಾರರು ಬಿದ್ದು ಗಾಯಗೊಂಡಿದ್ದಾರೆ. ತಕ್ಷಣ ಡಾಂಬರೀಕರಣ ಮಾಡಿ.",
             "english_translation": "Huge pothole on main road caused two-wheeler riders to fall and get injured. Needs immediate asphalt patching.",
@@ -237,13 +250,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Road Maintenance Department",
             "suggested_action": "Deploy rapid road repair unit with cold-mix asphalt patch.",
             "location": "15th Cross, Sampige Road, Malleshwaram",
+            "latitude": 13.0031,
+            "longitude": 77.5643,
             "people_affected": 400,
             "near_school": 0,
             "near_hospital": 1,
             "status": "Pending",
             "duplicate_of": "",
         },
-        # 3. Roads - High (Intentional Near-Duplicate of #2 in Kannada/English)
         {
             "description": "Big pothole on Sampige road 15th cross, two-wheelers are skidding and traffic is held up.",
             "english_translation": "Big pothole on Sampige road 15th cross, two-wheelers are skidding and traffic is held up.",
@@ -255,13 +269,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Road Maintenance Department",
             "suggested_action": "Barricade cavity and schedule road surface repair.",
             "location": "15th Cross, Sampige Road, Malleshwaram",
+            "latitude": 13.0035,
+            "longitude": 77.5648,
             "people_affected": 300,
             "near_school": 0,
             "near_hospital": 0,
             "status": "Pending",
             "duplicate_of": "CL-20261121-0002",
         },
-        # 4. Drainage - Critical (Hindi Open Manhole)
         {
             "description": "मुख्य सड़क पर सीवर का ढक्कन टूटा हुआ है और खुला पड़ा है। रात में कोई भी इसमें गिर सकता है।",
             "english_translation": "Sewer manhole cover is broken and wide open on the main road. Anyone can fall in at night.",
@@ -273,13 +288,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Drainage Department",
             "suggested_action": "Place safety barricades and install heavy cast-iron replacement cover.",
             "location": "Gandhi Chowk, Sector 4 Main Road",
+            "latitude": 12.9716,
+            "longitude": 77.5946,
             "people_affected": 180,
             "near_school": 0,
             "near_hospital": 0,
             "status": "Pending",
             "duplicate_of": "",
         },
-        # 5. Water - High (Drinking Water Pipeline Burst)
         {
             "description": "Massive 500mm drinking water main pipeline fractured and gushing clean drinking water, flooding adjacent residential basements.",
             "english_translation": "Massive 500mm drinking water main pipeline fractured and gushing clean drinking water, flooding adjacent residential basements.",
@@ -291,13 +307,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Water Supply Department",
             "suggested_action": "Shut off zonal control valve and excavate to repair fractured collar.",
             "location": "12th Main, 4th Block, Jayanagar",
+            "latitude": 12.9308,
+            "longitude": 77.5838,
             "people_affected": 350,
             "near_school": 1,
             "near_hospital": 0,
             "status": "In Progress",
             "duplicate_of": "",
         },
-        # 6. Waste - High (Overflowing Dump)
         {
             "description": "Garbage dump overflowing onto road for 6 days. Stray cattle and dogs feeding, intense odor and maggots entering homes.",
             "english_translation": "Garbage dump overflowing onto road for 6 days. Stray cattle and dogs feeding, intense odor and maggots entering homes.",
@@ -309,31 +326,14 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Solid Waste Management Department",
             "suggested_action": "Dispatch compactors and sanitize bin area with bleaching powder.",
             "location": "BTM Layout 2nd Stage, near Udupi Garden",
+            "latitude": 12.9166,
+            "longitude": 77.6101,
             "people_affected": 200,
             "near_school": 0,
             "near_hospital": 1,
             "status": "Pending",
             "duplicate_of": "",
         },
-        # 7. Waste - Medium (Intentional Near-Duplicate of #6)
-        {
-            "description": "Garbage not cleared near Udupi Garden BTM 2nd stage, waste spilled over footpath.",
-            "english_translation": "Garbage not cleared near Udupi Garden BTM 2nd stage, waste spilled over footpath.",
-            "language": "English",
-            "category": "Waste",
-            "severity": "Medium",
-            "severity_reason": "Uncollected street waste spilling onto pedestrian area.",
-            "summary": "Uncleared waste near Udupi Garden BTM",
-            "department": "Solid Waste Management Department",
-            "suggested_action": "Clear waste spill and notify zonal conservancy inspector.",
-            "location": "BTM Layout 2nd Stage, Udupi Garden",
-            "people_affected": 150,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "CL-20261121-0006",
-        },
-        # 8. Trees - High (Hanging Branch)
         {
             "description": "Large banyan tree branch cracked during thunderstorm, hanging precariously over road and touching cable TV lines.",
             "english_translation": "Large banyan tree branch cracked during thunderstorm, hanging precariously over road and touching cable TV lines.",
@@ -345,115 +345,9 @@ def seed_sample_complaints(db_path: str = DB_FILE) -> int:
             "department": "Horticulture Department",
             "suggested_action": "Dispatch tree pruning crane team with chainsaws.",
             "location": "Cunningham Road, opposite Indian Express",
+            "latitude": 12.9850,
+            "longitude": 77.5980,
             "people_affected": 120,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-        # 9. Drainage - Medium (Clogged Drain)
-        {
-            "description": "Stormwater drain clogged with plastic bottles and construction silt, causing knee-deep waterlogging during light showers.",
-            "english_translation": "Stormwater drain clogged with plastic bottles and construction silt, causing knee-deep waterlogging during light showers.",
-            "language": "English",
-            "category": "Drainage",
-            "severity": "Medium",
-            "severity_reason": "Localized drainage blockage causing recurrent street stagnation.",
-            "summary": "Blocked storm drain causing localized water stagnation",
-            "department": "Drainage Department",
-            "suggested_action": "Deploy de-silting suction truck to clear drain bed.",
-            "location": "CMH Road, Indiranagar",
-            "people_affected": 80,
-            "near_school": 1,
-            "near_hospital": 0,
-            "status": "In Progress",
-            "duplicate_of": "",
-        },
-        # 10. Water - Medium (Low Pressure Turbid Water)
-        {
-            "description": "Drinking water supply has low pressure and brownish turbidity in morning hours for past 3 days.",
-            "english_translation": "Drinking water supply has low pressure and brownish turbidity in morning hours for past 3 days.",
-            "language": "English",
-            "category": "Water",
-            "severity": "Medium",
-            "severity_reason": "Low delivery pressure and minor sediment in municipal potable supply.",
-            "summary": "Low pressure and turbid water in tap supply",
-            "department": "Water Supply Department",
-            "suggested_action": "Flush distribution line and inspect booster pump stations.",
-            "location": "HSR Layout Sector 1, 14th Cross",
-            "people_affected": 60,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-        # 11. Electricity - Medium (Streetlight Outage)
-        {
-            "description": "Three streetlights continuously unlit for 10 days, dark corner near bus stop causing security concerns for commuters.",
-            "english_translation": "Three streetlights continuously unlit for 10 days, dark corner near bus stop causing security concerns for commuters.",
-            "language": "English",
-            "category": "Electricity",
-            "severity": "Medium",
-            "severity_reason": "Dark public transit point creating safety vulnerabilities.",
-            "summary": "Three non-functional streetlights at bus stop",
-            "department": "Electrical Department",
-            "suggested_action": "Replace blown LED drivers and test circuit breaker.",
-            "location": "Outer Ring Road, Marathahalli Bridge bus stop",
-            "people_affected": 150,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Resolved",
-            "duplicate_of": "",
-        },
-        # 12. Waste - Low (Illegal Posters)
-        {
-            "description": "Illegal poster pasting and pamphlet litter on bus shelter glass panels.",
-            "english_translation": "Illegal poster pasting and pamphlet litter on bus shelter glass panels.",
-            "language": "English",
-            "category": "Waste",
-            "severity": "Low",
-            "severity_reason": "Cosmetic defacement of public infrastructure without direct safety risk.",
-            "summary": "Illegal posters defacing bus shelter",
-            "department": "Solid Waste Management Department",
-            "suggested_action": "Issue cleaning notice and wash glass panels.",
-            "location": "MG Road, Trinity Circle Bus Stop",
-            "people_affected": 40,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Resolved",
-            "duplicate_of": "",
-        },
-        # 13. Roads - Low (Unmarked Speed Hump)
-        {
-            "description": "Unmarked speed breaker on residential lane needs white thermoplastic reflective paint.",
-            "english_translation": "Unmarked speed breaker on residential lane needs white thermoplastic reflective paint.",
-            "language": "English",
-            "category": "Roads",
-            "severity": "Low",
-            "severity_reason": "Routine traffic marking maintenance for road hump.",
-            "summary": "Unmarked road hump needing reflective paint",
-            "department": "Road Maintenance Department",
-            "suggested_action": "Paint reflective zebra warning stripes on speed hump.",
-            "location": "7th Main, Sadashivanagar",
-            "people_affected": 25,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Resolved",
-            "duplicate_of": "",
-        },
-        # 14. Trees - Low (Overgrown Hedge)
-        {
-            "description": "Overgrown hedge along public walkway encroaching onto footway by about one foot.",
-            "english_translation": "Overgrown hedge along public walkway encroaching onto footway by about one foot.",
-            "language": "English",
-            "category": "Trees",
-            "severity": "Low",
-            "severity_reason": "Minor botanical encroachment on pedestrian footpath.",
-            "summary": "Overgrown hedge encroaching footpath",
-            "department": "Horticulture Department",
-            "suggested_action": "Trim hedge borders to clear walkway clearance.",
-            "location": "Lavelle Road, Near UB City",
-            "people_affected": 15,
             "near_school": 0,
             "near_hospital": 0,
             "status": "Pending",

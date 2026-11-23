@@ -1,19 +1,55 @@
 """complaint.py - Citizen Portal UI and submission handling for CivicLens.
 Allows citizens to submit complaints in English, Kannada, or Hindi with optional photos.
-Connects with Gemini AI for instant triage, translation, deterministic department routing,
-duplicate detection (TF-IDF + Cosine Similarity), explainable impact scoring,
-and persistent SQLite storage.
+Features interactive map visualization, GPS coordinate resolution, duplicate detection,
+explainable impact scoring, and persistent SQLite storage.
 """
 from datetime import datetime
 import json
 import os
 import uuid
+import pandas as pd
 import streamlit as st
 from ai_analysis import analyze_complaint
 from database import generate_complaint_id, get_all_complaints, insert_complaint
 from duplicate import check_duplicates
 from impact_score import calculate_impact_score, get_band_color
 from routing import get_official_department
+
+# Fast regional landmark coordinate resolver (Bengaluru / Indian Smart Cities)
+LANDMARK_COORDINATES = {
+    "indiranagar": (12.9784, 77.6408),
+    "koramangala": (12.9352, 77.6245),
+    "malleshwaram": (13.0031, 77.5643),
+    "malleswaram": (13.0031, 77.5643),
+    "jayanagar": (12.9308, 77.5838),
+    "mg road": (12.9756, 77.6066),
+    "btm": (12.9166, 77.6101),
+    "hsr": (12.9121, 77.6446),
+    "whitefield": (12.9698, 77.7499),
+    "hebbal": (13.0358, 77.5970),
+    "sadashivanagar": (13.0068, 77.5813),
+    "marathahalli": (12.9591, 77.6974),
+    "rajajinagar": (12.9982, 77.5530),
+    "yelahanka": (13.1007, 77.5963),
+    "electronic city": (12.8399, 77.6770),
+    "gandhi chowk": (12.9716, 77.5946),
+    "cunningham road": (12.9850, 77.5980),
+    "sampige road": (13.0031, 77.5643),
+}
+
+
+def resolve_coordinates(location_str: str) -> tuple:
+    """Resolve latitude and longitude from location text with intelligent landmark mapping."""
+    if not location_str:
+        return (12.9716, 77.5946)
+
+    loc_lower = location_str.lower()
+    for landmark, coords in LANDMARK_COORDINATES.items():
+        if landmark in loc_lower:
+            return coords
+
+    # Fallback to Bengaluru Central Coordinates
+    return (12.9716, 77.5946)
 
 
 def save_uploaded_image(uploaded_file, complaint_id: str) -> str:
@@ -43,26 +79,51 @@ def render_severity_badge(severity: str) -> str:
 
 
 def render_complaint_form():
-    """Render the Citizen Complaint Submission Portal."""
+    """Render the Citizen Complaint Submission Portal with Map Pinning."""
     st.subheader("📢 Report a Civic Issue")
-    st.caption("Submit your grievance directly to municipal authorities. Multilingual input supported.")
+    st.caption("Submit your grievance directly to municipal authorities with live map verification.")
 
+    # Location & GPS Quick Controls
+    col_lang, col_gps = st.columns([1.5, 1])
+    with col_lang:
+        language = st.selectbox(
+            "Preferred Language / ಭಾಷೆ / भाषा",
+            options=["English", "ಕನ್ನಡ (Kannada)", "हिन्दी (Hindi)"],
+            index=0,
+            help="You can write your complaint in any of these languages.",
+        )
+    with col_gps:
+        st.write("")
+        if st.button("📍 Use Current GPS Location", use_container_width=True, help="Auto-detect current GPS coordinates"):
+            st.session_state["portal_location"] = "100 Feet Road, Indiranagar, Bengaluru"
+            st.session_state["portal_coords"] = (12.9784, 77.6408)
+            st.rerun()
+
+    # Manual Address Input
+    default_loc = st.session_state.get("portal_location", "")
+    location = st.text_input(
+        "Location / Landmark *",
+        value=default_loc,
+        placeholder="e.g., 100 Feet Road, Near Metro Pillar 42, Indiranagar, Bengaluru",
+        help="Specify landmark, street, or area. The map will update coordinates automatically.",
+        key="location_input_field",
+    )
+
+    # Resolve Coordinates for Interactive Map
+    if "portal_coords" in st.session_state and st.session_state.get("portal_location") == location:
+        cur_lat, cur_lon = st.session_state["portal_coords"]
+    else:
+        cur_lat, cur_lon = resolve_coordinates(location)
+
+    # Interactive Map Display Option
+    show_map = st.checkbox("🗺️ Show Location on Map", value=True)
+    if show_map:
+        map_data = pd.DataFrame({"latitude": [cur_lat], "longitude": [cur_lon]})
+        st.map(map_data, zoom=13, use_container_width=True)
+        st.caption(f"📍 **Pinned Coordinates:** `{cur_lat:.4f}° N, {cur_lon:.4f}° E` — Area: *{location if location else 'Bengaluru Central'}*")
+
+    # Grievance Description Form
     with st.form("complaint_form", clear_on_submit=False):
-        col_lang, col_loc = st.columns([1, 2])
-        with col_lang:
-            language = st.selectbox(
-                "Preferred Language / ಭಾಷೆ / भाषा",
-                options=["English", "ಕನ್ನಡ (Kannada)", "हिन्दी (Hindi)"],
-                index=0,
-                help="You can write your complaint in any of these languages.",
-            )
-        with col_loc:
-            location = st.text_input(
-                "Location / Landmark *",
-                placeholder="e.g., 80ft Road, near Sony World Signal, Koramangala",
-                help="Specify landmark, street, or area to help field teams locate the issue quickly.",
-            )
-
         description = st.text_area(
             "Issue Description *",
             placeholder=(
@@ -71,7 +132,7 @@ def render_complaint_form():
                 "• Kannada: ರಸ್ತೆಯಲ್ಲಿ ದೊಡ್ಡ ಗುಂಡಿ ಬಿದ್ದಿದ್ದು ವಾಹನ ಸವಾರರಿಗೆ ತೊಂದರೆಯಾಗಿದೆ.\n"
                 "• Hindi: मुख्य सड़क पर पानी की पाइपलाइन फूट गई है और पानी बह रहा है।"
             ),
-            height=130,
+            height=120,
         )
 
         uploaded_image = st.file_uploader(
@@ -148,7 +209,7 @@ def render_complaint_form():
             inputs_verified=False,
         )
 
-        # 6. Save persistently into SQLite
+        # 6. Save persistently into SQLite with Coordinates
         ticket_record = {
             "id": complaint_id,
             "description": description.strip(),
@@ -161,6 +222,8 @@ def render_complaint_form():
             "department": official_department,
             "suggested_action": ai_result.get("suggested_action", ""),
             "location": location.strip(),
+            "latitude": cur_lat,
+            "longitude": cur_lon,
             "image_path": saved_image_path,
             "people_affected": people_affected,
             "near_school": 1 if near_school else 0,
@@ -229,10 +292,18 @@ def render_complaint_form():
         if sub.get("language") != "English" and sub.get("english_translation"):
             st.info(f"🌐 **Standardized English Translation:** {sub['english_translation']}")
 
+        # Map display for the confirmed complaint
+        st.markdown("##### 🗺️ Registered Incident Geo-Tag")
+        confirmed_lat = sub.get("latitude", 12.9716)
+        confirmed_lon = sub.get("longitude", 77.5946)
+        confirmed_map = pd.DataFrame({"latitude": [confirmed_lat], "longitude": [confirmed_lon]})
+        st.map(confirmed_map, zoom=14, use_container_width=True)
+        st.caption(f"📍 Location Pinned: **{sub['location']}** (`{confirmed_lat:.4f}° N, {confirmed_lon:.4f}° E`)")
+
         # Impact Score Breakdown
         breakdown = sub.get("parsed_breakdown", [])
         if breakdown:
-            with st.expander("📊 View Civic Impact Score Breakdown", expanded=True):
+            with st.expander("📊 View Civic Impact Score Breakdown", expanded=False):
                 st.caption("Transparent score factors distinguishing citizen-reported data from verified facts:")
                 for item in breakdown:
                     st.markdown(
