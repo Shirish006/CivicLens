@@ -25,12 +25,21 @@ def _prepare(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _apply_sorting(df: pd.DataFrame, sort_by: str = "Priority") -> pd.DataFrame:
+    if "Most Recent" in sort_by:
+        return df.sort_values("Date", ascending=False)
+    elif "Impact" in sort_by:
+        return df.sort_values(["Impact", "Date"], ascending=[False, False])
+    else:
+        d = df.copy()
+        d["_sev"] = d["Severity"].map({s: i for i, s in enumerate(SEVERITY_ORDER)}).fillna(99)
+        d["_sta"] = d["Status"].map({s: i for i, s in enumerate(STATUS_ORDER)}).fillna(99)
+        d = d.sort_values(["_sev", "_sta", "Impact", "Date"], ascending=[True, True, False, False])
+        return d.drop(columns=["_sev", "_sta"])
+
+
 def _sort_by_priority(df: pd.DataFrame) -> pd.DataFrame:
-    d = df.copy()
-    d["_sev"] = d["Severity"].map({s: i for i, s in enumerate(SEVERITY_ORDER)}).fillna(99)
-    d["_sta"] = d["Status"].map({s: i for i, s in enumerate(STATUS_ORDER)}).fillna(99)
-    d = d.sort_values(["_sev", "_sta", "Impact", "Date"], ascending=[True, True, False, False])
-    return d.drop(columns=["_sev", "_sta"])
+    return _apply_sorting(df, "Priority")
 
 
 def _apply_filters(df, cats, depts, sevs, stats, query) -> pd.DataFrame:
@@ -114,16 +123,17 @@ def _charts(df: pd.DataFrame) -> None:
         st.plotly_chart(_style(fig), config=CHART_CFG, key="ch_dept")
 
 
-def _filters(df: pd.DataFrame) -> pd.DataFrame:
+def _filters(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     with st.container(key="card-filters"):
-        C.md('<div class="cl-ct">Filter the ticket queue</div>')
-        f1, f2, f3, f4, f5 = st.columns([1, 1.3, 1, 1, 1.3])
+        C.md('<div class="cl-ct">Filter & Sort Ticket Queue</div>')
+        f1, f2, f3, f4, f5, f6 = st.columns([1, 1.2, 1, 1, 1.3, 1.3])
         cats = f1.multiselect("Category", CATEGORIES, placeholder="All")
         depts = f2.multiselect("Department", list(DEPARTMENTS.values()), placeholder="All")
         sevs = f3.multiselect("Severity", SEVERITY_ORDER, placeholder="All")
         stats = f4.multiselect("Status", STATUS_ORDER, placeholder="All")
-        query = f5.text_input("Search", placeholder="ID, place or keyword")
-    return _apply_filters(df, cats, depts, sevs, stats, query)
+        sort_by = f5.selectbox("Sort Order", ["🚨 Priority (Urgent First)", "🕒 Most Recent (Newest First)", "📈 Impact Score"], index=0)
+        query = f6.text_input("Search", placeholder="ID, place or keyword")
+    return _apply_filters(df, cats, depts, sevs, stats, query), sort_by
 
 
 def _queue(filtered: pd.DataFrame, total: int) -> None:
@@ -202,6 +212,14 @@ def render() -> None:
                 st.map(map_data[["lat", "lon"]], zoom=11)
                 st.caption(f"Visualizing {len(valid_coords)} geo-tagged incident locations across Bengaluru.")
 
-    filtered = _sort_by_priority(_filters(df))
-    _queue(filtered, len(df))
-    _update_panel(filtered)
+    filtered, sort_by = _filters(df)
+    sorted_df = _apply_sorting(filtered, sort_by)
+
+    # Latest complaint indicator if submitted recently in this session
+    last_sub = st.session_state.get("cp_result")
+    if last_sub and last_sub.get("complaint_id"):
+        cid = last_sub["complaint_id"]
+        st.info(f"🆕 **Recently Received in Session:** Complaint **{cid}** ({last_sub.get('category')} • {last_sub.get('severity')}) is stored in SQLite. Select **'🕒 Most Recent (Newest First)'** or search `{cid}` to view it at the top.")
+
+    _queue(sorted_df, len(df))
+    _update_panel(sorted_df)

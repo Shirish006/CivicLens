@@ -71,7 +71,7 @@ def kpi_card(label: str, value, sub: str, accent: str) -> str:
             f'<div class="cl-kpi-sub">{esc(sub)}</div></div>')
 
 
-def ticket_table(df: pd.DataFrame, limit: int = 100) -> str:
+def ticket_table(df: pd.DataFrame, limit: int = 500) -> str:
     """Priority-ordered ticket table with severity-coloured left edge."""
     show_impact = "Impact" in df.columns
     heads = ["Complaint ID", "Description", "Category", "Severity", "Reason",

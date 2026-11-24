@@ -129,6 +129,8 @@ def _result_view(r: dict) -> None:
       <div>{C.status_badge(r.get("status", "Pending"))}</div>
     </div>""")
 
+    st.success(f"✅ Complaint **{r['complaint_id']}** has been registered and securely saved in the municipal database (SQLite).")
+
     if r.get("fallback_reason"):
         st.warning("The AI service was unavailable, so this analysis comes from the offline demo rules.")
     if r.get("duplicates"):
