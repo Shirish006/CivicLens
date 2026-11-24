@@ -133,7 +133,13 @@ def _filters(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         stats = f4.multiselect("Status", STATUS_ORDER, placeholder="All")
         sort_by = f5.selectbox("Sort Order", ["🚨 Priority (Urgent First)", "🕒 Most Recent (Newest First)", "📈 Impact Score"], index=0)
         query = f6.text_input("Search", placeholder="ID, place or keyword")
-    return _apply_filters(df, cats, depts, sevs, stats, query), sort_by
+
+        show_dups_only = st.checkbox("🔗 Show detected duplicates only", key="f_show_dups")
+
+    filtered = _apply_filters(df, cats, depts, sevs, stats, query)
+    if show_dups_only and "Duplicate Of" in filtered.columns:
+        filtered = filtered[filtered["Duplicate Of"].fillna("").str.strip() != ""]
+    return filtered, sort_by
 
 
 def _queue(filtered: pd.DataFrame, total: int) -> None:
@@ -186,6 +192,7 @@ def _update_panel(filtered: pd.DataFrame) -> None:
             <dt>Suggested action</dt><dd>{C.esc(row["Action"])}</dd>
             <dt>Department</dt><dd>{C.esc(row["Department"])}</dd>
             <dt>Impact score</dt><dd>{C.esc(row["Impact"])} out of 100</dd>
+            {f'<dt>Linked Duplicate</dt><dd><b style="color:#C2410C;">Matches {C.esc(row["Duplicate Of"])}</b></dd>' if str(row.get("Duplicate Of", "")).strip() else ''}
           </dl>
         </div>""")
 

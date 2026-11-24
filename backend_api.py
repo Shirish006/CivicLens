@@ -191,7 +191,7 @@ def submit_complaint(
         new_category=category,
         new_location=location,
         existing_df=existing_df,
-        threshold=0.35,
+        threshold=0.28,
     )
     formatted_dups = [
         {
@@ -281,6 +281,7 @@ def get_tickets() -> pd.DataFrame:
     out["Action"] = df["suggested_action"].fillna("").astype(str)
     out["Language"] = df["language"].fillna("English").astype(str)
     out["People"] = pd.to_numeric(df["people_affected"], errors="coerce").fillna(0).astype(int)
+    out["Duplicate Of"] = df["duplicate_of"].fillna("").astype(str) if "duplicate_of" in df.columns else ""
     if "latitude" in df.columns:
         out["Latitude"] = pd.to_numeric(df["latitude"], errors="coerce").fillna(12.9716)
     if "longitude" in df.columns:

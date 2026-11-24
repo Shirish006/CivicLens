@@ -31,12 +31,24 @@ def _compute_location_similarity(loc1: str, loc2: str) -> float:
     return float(intersection) / float(union) if union > 0 else 0.0
 
 
+def _token_jaccard(t1: str, t2: str) -> float:
+    """Compute token Jaccard similarity between two complaint descriptions."""
+    w1 = set(re.findall(r"\w+", (t1 or "").lower()))
+    w2 = set(re.findall(r"\w+", (t2 or "").lower()))
+    stop = {"the", "a", "an", "is", "in", "at", "of", "and", "or", "for", "with", "near", "to", "this", "it", "on", "from", "are", "be"}
+    w1 = w1 - stop
+    w2 = w2 - stop
+    if not w1 or not w2:
+        return 0.0
+    return len(w1 & w2) / len(w1 | w2)
+
+
 def check_duplicates(
     new_text: str,
     new_category: str,
     new_location: str,
     existing_df: pd.DataFrame,
-    threshold: float = 0.40,
+    threshold: float = 0.30,
 ) -> List[Dict[str, Any]]:
     """Check if a new complaint is a potential duplicate of existing complaints.
 
@@ -53,8 +65,9 @@ def check_duplicates(
     if existing_df is None or existing_df.empty:
         return []
 
-    # 1. Filter existing complaints to the same category
-    category_df = existing_df[existing_df["category"].str.lower() == str(new_category).lower()].copy()
+    # 1. Filter existing complaints to the same category (case-insensitive)
+    cat_col = "category" if "category" in existing_df.columns else "Category"
+    category_df = existing_df[existing_df[cat_col].astype(str).str.strip().str.lower() == str(new_category).strip().lower()].copy()
     if category_df.empty or len(category_df) < 1:
         return []
 
@@ -72,23 +85,26 @@ def check_duplicates(
         tfidf_matrix = vectorizer.fit_transform(all_texts)
         text_sims = cosine_similarity(tfidf_matrix[-1:], tfidf_matrix[:-1])[0]
     except Exception:
-        # Fallback if text is too short or vocabulary empty
         text_sims = [0.0] * len(existing_texts)
 
     matches = []
     for idx, (_, row) in enumerate(category_df.iterrows()):
         t_sim = float(text_sims[idx])
+        j_sim = _token_jaccard(new_text, existing_texts[idx])
+        t_best = max(t_sim, j_sim)
         l_sim = _compute_location_similarity(new_location, str(row.get("location", "")))
 
-        # Weighted combination: 70% text description + 30% location
-        combined_sim = (0.70 * t_sim) + (0.30 * l_sim)
+        # Weighted combination: 60% text description + 40% location
+        combined_sim = (0.60 * t_best) + (0.40 * l_sim)
 
-        if combined_sim >= threshold or t_sim >= 0.65:
+        if combined_sim >= threshold or t_best >= 0.50 or (l_sim >= 0.60 and t_best >= 0.25):
+            pct = int(round(min(1.0, max(combined_sim * 1.15, t_best)) * 100))
+            cid = str(row.get("id") or row.get("Complaint ID", ""))
             matches.append(
                 {
-                    "id": str(row["id"]),
-                    "similarity_pct": int(round(combined_sim * 100)),
-                    "text_similarity_pct": int(round(t_sim * 100)),
+                    "id": cid,
+                    "similarity_pct": pct,
+                    "text_similarity_pct": int(round(t_best * 100)),
                     "location_similarity_pct": int(round(l_sim * 100)),
                     "location": str(row.get("location", "Not specified")),
                     "summary": str(row.get("summary") or row.get("description") or "")[:100],

@@ -84,8 +84,10 @@ def ticket_table(df: pd.DataFrame, limit: int = 500) -> str:
         short = desc if len(desc) <= 100 else desc[:97].rstrip() + "..."
         date = r["Date"].strftime("%d %b %Y") if pd.notna(r["Date"]) else ""
         edge = T.SEVERITY.get(r["Severity"], T.LINE)
+        dup_val = str(r.get("Duplicate Of") or "").strip()
+        dup_badge = f' <span title="Duplicate of {esc(dup_val)}" style="color:#C2410C;background:#FFEDD5;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;">🔗 Dup</span>' if dup_val else ''
         cells = [
-            f'<td class="first" style="border-left-color:{edge}">{esc(r["Complaint ID"])}</td>',
+            f'<td class="first" style="border-left-color:{edge}">{esc(r["Complaint ID"])}{dup_badge}</td>',
             f'<td class="desc" title="{esc(desc)}">{esc(short)}</td>',
             f'<td>{category_chip(r["Category"])}</td>',
             f'<td>{severity_badge(r["Severity"])}</td>',

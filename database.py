@@ -5,6 +5,7 @@ Includes geospatial coordinates (latitude, longitude) for map visualization.
 """
 from datetime import datetime
 import json
+import re
 import sqlite3
 from typing import Any, Dict, List, Optional
 import pandas as pd
@@ -217,160 +218,102 @@ def update_verification(
     return affected
 
 
+CANONICAL_SEED = [
+    ("Live electric wire hanging from a pole near the bus stop, sparking in the rain", "Electricity", "Critical", "Indiranagar 100 Feet Road, Bengaluru", 300, 0, 0, 12.9784, 77.6408),
+    ("Huge pothole on the main road, two bikers fell this morning", "Roads", "Critical", "Outer Ring Road, Marathahalli, Bengaluru", 500, 0, 0, 12.9591, 77.6974),
+    ("Open manhole without a cover near the government school gate", "Drainage", "Critical", "Jayanagar 4th Block, Bengaluru", 400, 1, 0, 12.9308, 77.5838),
+    ("Transformer humming loudly and sparking at night", "Electricity", "Critical", "Kalyan Nagar, Bengaluru", 350, 0, 0, 13.0221, 77.6403),
+    ("Garbage not collected for 6 days, foul smell near the market", "Waste", "High", "Malleshwaram 8th Cross, Bengaluru", 150, 0, 0, 13.0031, 77.5643),
+    ("Water pipe burst, road flooded and no supply to the street", "Water", "High", "Koramangala 5th Block, Bengaluru", 200, 0, 0, 12.9352, 77.6245),
+    ("Streetlights not working along the whole stretch, very dark at night", "Electricity", "Medium", "HSR Layout Sector 2, Bengaluru", 80, 0, 0, 12.9121, 77.6446),
+    ("Large tree branch fell and is blocking half of the road", "Trees", "High", "Rajajinagar 2nd Block, Bengaluru", 120, 0, 0, 12.9915, 77.5554),
+    ("Drain overflowing into houses after the rain", "Drainage", "High", "BTM Layout 2nd Stage, Bengaluru", 90, 0, 0, 12.9166, 77.6101),
+    ("ರಸ್ತೆಯಲ್ಲಿ ದೊಡ್ಡ ಗುಂಡಿ ಇದೆ, ಶಾಲೆಯ ಹತ್ತಿರ", "Roads", "High", "Yelahanka New Town, Bengaluru", 250, 1, 0, 13.1007, 77.5963),
+    ("कचरा सड़क किनारे जमा है, कई दिनों से नहीं उठा", "Waste", "Medium", "Whitefield, ITPL Main Road, Bengaluru", 60, 0, 0, 12.9698, 77.7500),
+    ("Low water pressure every morning for the past week", "Water", "Low", "Banashankari 2nd Stage, Bengaluru", 40, 0, 0, 12.9255, 77.5468),
+    ("Overflowing dustbin at the park entrance", "Waste", "Low", "Hebbal Kempapura, Bengaluru", 25, 0, 0, 13.0358, 77.5970),
+    ("Dead tree leaning over a compound wall, may fall", "Trees", "Medium", "Basavanagudi, Bengaluru", 30, 0, 0, 12.9421, 77.5753),
+    ("Pothole near the hospital gate is delaying ambulances", "Roads", "High", "Sarjapur Road, near hospital, Bengaluru", 600, 0, 1, 12.8600, 77.7860),
+    ("Sewage water mixing with the drinking water supply", "Water", "Critical", "Shivajinagar, Bengaluru", 800, 0, 0, 12.9857, 77.6057),
+    ("Streetlight flickering near the park", "Electricity", "Low", "Vijayanagar, Bengaluru", 20, 0, 0, 12.9719, 77.5306),
+    ("Road surface sinking near a metro pillar, cracks widening", "Roads", "High", "Jalahalli, Bengaluru", 350, 0, 0, 13.0537, 77.5401),
+    ("ನೀರಿನ ಪೈಪ್ ಒಡೆದಿದೆ, ನೀರು ವ್ಯರ್ಥವಾಗುತ್ತಿದೆ", "Water", "Medium", "Kengeri, Bengaluru", 70, 0, 0, 12.9081, 77.4842),
+    ("बिजली का खंभा झुका हुआ है, गिरने का खतरा है", "Electricity", "High", "Yeshwanthpur, Bengaluru", 200, 0, 0, 13.0280, 77.5409),
+    ("Garbage being burned near an apartment, smoke entering homes", "Waste", "High", "Bellandur, Bengaluru", 400, 0, 0, 12.9279, 77.6741),
+    ("Blocked storm drain, water logging after every rain", "Drainage", "Medium", "Domlur, Bengaluru", 120, 0, 0, 12.9609, 77.6387),
+    ("Fallen tree was cleared but branches still lie on the footpath", "Trees", "Low", "Cox Town, Bengaluru", 15, 0, 0, 12.9965, 77.6220),
+    ("Footpath tiles broken near the bus stand", "Roads", "Low", "Majestic, Bengaluru", 50, 0, 0, 12.9767, 77.5713),
+]
+
+
 def seed_sample_complaints(db_path: str = DB_FILE) -> int:
-    """Seed realistic sample complaints across all categories with coordinates."""
-    raw_samples = [
-        {
-            "description": "Exposed high-voltage transformer cable sparking onto wet footpath outside primary school. Immediate electrocution risk!",
-            "english_translation": "Exposed high-voltage transformer cable sparking onto wet footpath outside primary school. Immediate electrocution risk!",
-            "language": "English",
-            "category": "Electricity",
-            "severity": "Critical",
-            "severity_reason": "Live high-voltage electrical hazard in direct contact with public pedestrian pathway.",
-            "summary": "Sparking exposed electrical wire near school",
-            "department": "Electrical Department",
-            "suggested_action": "Emergency power isolation and dispatch linemen crew immediately.",
-            "location": "80 Feet Road, Near St. Mary's School, Koramangala",
-            "latitude": 12.9352,
-            "longitude": 77.6245,
-            "people_affected": 250,
-            "near_school": 1,
-            "near_hospital": 0,
-            "status": "In Progress",
-            "duplicate_of": "",
-        },
-        {
-            "description": "ರಸ್ತೆಯಲ್ಲಿ ಭಾರಿ ಗಾತ್ರದ ಗುಂಡಿ ಬಿದ್ದಿದ್ದು ದ್ವಿಚಕ್ರ ವಾಹನ ಸವಾರರು ಬಿದ್ದು ಗಾಯಗೊಂಡಿದ್ದಾರೆ. ತಕ್ಷಣ ಡಾಂಬರೀಕರಣ ಮಾಡಿ.",
-            "english_translation": "Huge pothole on main road caused two-wheeler riders to fall and get injured. Needs immediate asphalt patching.",
-            "language": "Kannada",
-            "category": "Roads",
-            "severity": "Critical",
-            "severity_reason": "Severe road cavity that has already caused active vehicle accidents and bodily injury.",
-            "summary": "Severe pothole causing accidents in Malleshwaram",
-            "department": "Road Maintenance Department",
-            "suggested_action": "Deploy rapid road repair unit with cold-mix asphalt patch.",
-            "location": "15th Cross, Sampige Road, Malleshwaram",
-            "latitude": 13.0031,
-            "longitude": 77.5643,
-            "people_affected": 400,
-            "near_school": 0,
-            "near_hospital": 1,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-        {
-            "description": "Big pothole on Sampige road 15th cross, two-wheelers are skidding and traffic is held up.",
-            "english_translation": "Big pothole on Sampige road 15th cross, two-wheelers are skidding and traffic is held up.",
-            "language": "English",
-            "category": "Roads",
-            "severity": "High",
-            "severity_reason": "Traffic disruption and recurring skidding risk at busy commercial intersection.",
-            "summary": "Pothole on 15th Cross Sampige Road",
-            "department": "Road Maintenance Department",
-            "suggested_action": "Barricade cavity and schedule road surface repair.",
-            "location": "15th Cross, Sampige Road, Malleshwaram",
-            "latitude": 13.0035,
-            "longitude": 77.5648,
-            "people_affected": 300,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "CL-20261121-0002",
-        },
-        {
-            "description": "मुख्य सड़क पर सीवर का ढक्कन टूटा हुआ है और खुला पड़ा है। रात में कोई भी इसमें गिर सकता है।",
-            "english_translation": "Sewer manhole cover is broken and wide open on the main road. Anyone can fall in at night.",
-            "language": "Hindi",
-            "category": "Drainage",
-            "severity": "Critical",
-            "severity_reason": "Open manhole on public thoroughfare posing fatal falling hazard.",
-            "summary": "Broken open manhole on main road",
-            "department": "Drainage Department",
-            "suggested_action": "Place safety barricades and install heavy cast-iron replacement cover.",
-            "location": "Gandhi Chowk, Sector 4 Main Road",
-            "latitude": 12.9716,
-            "longitude": 77.5946,
-            "people_affected": 180,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-        {
-            "description": "Massive 500mm drinking water main pipeline fractured and gushing clean drinking water, flooding adjacent residential basements.",
-            "english_translation": "Massive 500mm drinking water main pipeline fractured and gushing clean drinking water, flooding adjacent residential basements.",
-            "language": "English",
-            "category": "Water",
-            "severity": "High",
-            "severity_reason": "Large-scale potable water wastage accompanied by residential basement flooding.",
-            "summary": "Drinking water main pipeline burst flooding street",
-            "department": "Water Supply Department",
-            "suggested_action": "Shut off zonal control valve and excavate to repair fractured collar.",
-            "location": "12th Main, 4th Block, Jayanagar",
-            "latitude": 12.9308,
-            "longitude": 77.5838,
-            "people_affected": 350,
-            "near_school": 1,
-            "near_hospital": 0,
-            "status": "In Progress",
-            "duplicate_of": "",
-        },
-        {
-            "description": "Garbage dump overflowing onto road for 6 days. Stray cattle and dogs feeding, intense odor and maggots entering homes.",
-            "english_translation": "Garbage dump overflowing onto road for 6 days. Stray cattle and dogs feeding, intense odor and maggots entering homes.",
-            "language": "English",
-            "category": "Waste",
-            "severity": "High",
-            "severity_reason": "Severe public health and biological hazard due to prolonged municipal solid waste accumulation.",
-            "summary": "Rotting garbage overflowing for six days",
-            "department": "Solid Waste Management Department",
-            "suggested_action": "Dispatch compactors and sanitize bin area with bleaching powder.",
-            "location": "BTM Layout 2nd Stage, near Udupi Garden",
-            "latitude": 12.9166,
-            "longitude": 77.6101,
-            "people_affected": 200,
-            "near_school": 0,
-            "near_hospital": 1,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-        {
-            "description": "Large banyan tree branch cracked during thunderstorm, hanging precariously over road and touching cable TV lines.",
-            "english_translation": "Large banyan tree branch cracked during thunderstorm, hanging precariously over road and touching cable TV lines.",
-            "language": "English",
-            "category": "Trees",
-            "severity": "High",
-            "severity_reason": "Structural failure of heavy tree limb threatening vehicular traffic and utility lines.",
-            "summary": "Cracked heavy tree branch hanging over road",
-            "department": "Horticulture Department",
-            "suggested_action": "Dispatch tree pruning crane team with chainsaws.",
-            "location": "Cunningham Road, opposite Indian Express",
-            "latitude": 12.9850,
-            "longitude": 77.5980,
-            "people_affected": 120,
-            "near_school": 0,
-            "near_hospital": 0,
-            "status": "Pending",
-            "duplicate_of": "",
-        },
-    ]
+    """Seed 24 realistic canonical complaints across Bengaluru wards with coordinates."""
+    from routing import get_official_department
+    from datetime import timedelta
 
+    now = datetime.now().replace(second=0, microsecond=0)
     count = 0
-    for s in raw_samples:
-        is_verified = (s["status"] == "Resolved")
-        score, breakdown, _ = calculate_impact_score(
-            severity=s["severity"],
-            people_affected=s["people_affected"],
-            near_school=bool(s["near_school"]),
-            near_hospital=bool(s["near_hospital"]),
-            inputs_verified=is_verified,
-        )
-        s["impact_score"] = score
-        s["impact_breakdown"] = json.dumps(breakdown)
-        s["inputs_verified"] = 1 if is_verified else 0
-        s["analysis_source"] = "sample"
 
-        insert_complaint(s, db_path)
-        count += 1
+    for i, (desc, cat, sev, loc, people, school, hospital, lat, lng) in enumerate(CANONICAL_SEED):
+        # Determine language
+        if re.search(r"[\u0C80-\u0CFF]", desc):
+            lang = "Kannada"
+            trans = "Large pothole on road near school" if "ಗುಂಡಿ" in desc else "Water pipe broken and leaking"
+        elif re.search(r"[\u0900-\u097F]", desc):
+            lang = "Hindi"
+            trans = "Garbage piled up on roadside" if "कचरा" in desc else "Electric pole bent, danger of falling"
+        else:
+            lang = "English"
+            trans = desc
+
+        score, breakdown, _ = calculate_impact_score(
+            severity=sev,
+            people_affected=people,
+            near_school=bool(school),
+            near_hospital=bool(hospital),
+            inputs_verified=False,
+        )
+
+        ticket_id = f"CL-{now.strftime('%Y%m%d')}-{100 + i:04d}"
+        created_time = (now - timedelta(days=i % 7, hours=(i * 3) % 24)).strftime("%Y-%m-%d %H:%M:%S")
+
+        status = "Resolved" if (i % 5 == 0) else ("In Progress" if (i % 3 == 0) else "Pending")
+
+        record = {
+            "id": ticket_id,
+            "description": desc,
+            "english_translation": trans,
+            "language": lang,
+            "category": cat,
+            "severity": sev,
+            "severity_reason": f"Urgent assessment for {cat.lower()} grievance requiring municipal inspection.",
+            "summary": f"{cat} incident reported at {loc}.",
+            "department": get_official_department(cat),
+            "suggested_action": f"Dispatch {cat.lower()} maintenance crew with necessary equipment.",
+            "location": loc,
+            "latitude": lat,
+            "longitude": lng,
+            "people_affected": people,
+            "near_school": school,
+            "near_hospital": hospital,
+            "inputs_verified": 0,
+            "impact_score": score,
+            "impact_breakdown": json.dumps(breakdown),
+            "duplicate_of": "",
+            "analysis_source": "sample_seed",
+            "created_at": created_time,
+            "status": status,
+        }
+
+        # Check if identical record already exists before inserting
+        conn = get_connection(db_path)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM complaints WHERE description = ? AND location = ? LIMIT 1;", (desc, loc))
+        existing = cur.fetchone()
+        conn.close()
+
+        if not existing:
+            insert_complaint(record, db_path)
+            count += 1
 
     return count
